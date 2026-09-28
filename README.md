@@ -10,6 +10,8 @@ Pas de points : l'équipe a **3 jours** pour réussir tous les défis. Soit elle
 - **Défis communs** : chaque défi a un objectif (ex. 300 pompes). Tous les membres y contribuent, la progression est partagée.
 - **Ajout rapide** : boutons +1 / +5 / +10… ou quantité libre, avec une note facultative.
 - **Annulation** : chacun peut annuler ses propres contributions en cas d'erreur.
+- **Preuves** : jusqu'à 4 photos ou captures d'écran par contribution, réduites et compressées sur le téléphone avant l'envoi. Toute l'équipe peut les voir et les agrandir.
+- **Défis ajoutés par l'équipe** : bouton « + Ajouter un défi » sous la liste (nom, objectif, unité, précision, obligatoire ou bonus). Ces défis ne concernent que l'équipe qui les crée et peuvent être supprimés ; les défis communs de `challenges.json`, eux, ne le peuvent pas.
 - **Activité** : fil des dernières contributions de l'équipe.
 - **Compte à rebours** : temps restant et statut de l'équipe (en cours, réussi, perdu). Une fois le temps écoulé, plus aucun ajout n'est possible.
 - Pensé pour le **téléphone** : grands boutons tactiles, prise en compte de l'encoche, mode sombre automatique.
@@ -27,7 +29,7 @@ npm start            # http://localhost:3000
 PORT=8080 npm start  # autre port
 ```
 
-Les données sont enregistrées dans `data/db.json` (modifiable via `DATA_DIR`). Pour tout remettre à zéro, arrêter le serveur et supprimer ce fichier.
+Les données sont enregistrées dans `data/db.json` et les images dans `data/uploads/` (dossier modifiable via `DATA_DIR`). Pour tout remettre à zéro, arrêter le serveur et supprimer le dossier `data/`.
 
 ## Régler la durée
 

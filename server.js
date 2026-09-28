@@ -9,16 +9,32 @@ const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const CHALLENGES_FILE = process.env.CHALLENGES_FILE || path.join(ROOT, 'challenges.json');
 const CONFIG_FILE = process.env.CONFIG_FILE || path.join(ROOT, 'config.json');
-const MAX_BODY = 64 * 1024;
+const MAX_BODY = 16 * 1024 * 1024;
+const MAX_PHOTOS = 4;
+const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
+const MAX_CUSTOM_CHALLENGES = 50;
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
-// Défis
+// Défis communs (challenges.json) et date limite (config.json)
 // ---------------------------------------------------------------------------
+
+function normalizeChallenge(c, id) {
+  return {
+    id,
+    title: String(c.title || id),
+    description: String(c.description || ''),
+    target: Number(c.target) > 0 ? Number(c.target) : 1,
+    unit: String(c.unit || ''),
+    step: Number(c.step) > 0 ? Number(c.step) : 1,
+    bonus: Boolean(c.bonus),
+  };
+}
 
 function loadChallenges() {
   const list = JSON.parse(fs.readFileSync(CHALLENGES_FILE, 'utf8'));
@@ -27,22 +43,11 @@ function loadChallenges() {
     const id = String(c.id || `defi-${i + 1}`);
     if (seen.has(id)) throw new Error(`Identifiant de défi en double : ${id}`);
     seen.add(id);
-    const target = Number(c.target) > 0 ? Number(c.target) : 1;
-    return {
-      id,
-      title: String(c.title || id),
-      description: String(c.description || ''),
-      target,
-      unit: String(c.unit || ''),
-      step: Number(c.step) > 0 ? Number(c.step) : 1,
-      bonus: Boolean(c.bonus),
-    };
+    return normalizeChallenge(c, id);
   });
 }
 
-const challenges = loadChallenges();
-const challengeById = new Map(challenges.map((c) => [c.id, c]));
-const mainChallenges = challenges.filter((c) => !c.bonus);
+const baseChallenges = loadChallenges();
 
 // Date limite : commune à toutes les équipes si `deadline` est défini,
 // sinon `durationHours` après la création de chaque équipe.
@@ -58,6 +63,7 @@ const deadlineOf = (team) => globalDeadline ?? team.createdAt + durationMs;
 
 let db = { teams: {}, members: {} };
 if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+for (const team of Object.values(db.teams)) team.customChallenges ??= [];
 
 let saveTimer = null;
 function writeDb() {
@@ -95,13 +101,21 @@ const clean = (s, max) => String(s ?? '').trim().replace(/\s+/g, ' ').slice(0, m
 const same = (a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }) === 0;
 const round = (n) => Math.round(n * 100) / 100;
 
+// ---------------------------------------------------------------------------
+// Équipes
+// ---------------------------------------------------------------------------
+
 function teamMembers(teamId) {
   return Object.values(db.members)
     .filter((m) => m.teamId === teamId)
     .sort((a, b) => a.joinedAt - b.joinedAt);
 }
 
-function teamProgress(team) {
+function teamChallenges(team) {
+  return [...baseChallenges, ...team.customChallenges.map((c) => ({ ...c, custom: true }))];
+}
+
+function teamProgress(team, challenges) {
   const progress = {};
   for (const c of challenges) progress[c.id] = 0;
   for (const k of team.contributions) {
@@ -110,34 +124,47 @@ function teamProgress(team) {
   return progress;
 }
 
-function teamStatus(team, progress) {
-  const done = mainChallenges.filter((c) => progress[c.id] >= c.target).length;
+function teamStatus(team, challenges, progress) {
+  const required = challenges.filter((c) => !c.bonus);
+  const done = required.filter((c) => progress[c.id] >= c.target).length;
   const deadline = deadlineOf(team);
   let status = 'ongoing';
-  if (done === mainChallenges.length) status = 'won';
+  if (done === required.length) status = 'won';
   else if (Date.now() >= deadline) status = 'lost';
-  return { done, total: mainChallenges.length, deadline, status };
+  return { done, total: required.length, deadline, status };
 }
 
 function teamView(team) {
-  const progress = teamProgress(team);
+  const challenges = teamChallenges(team);
+  const ids = new Set(challenges.map((c) => c.id));
+  const progress = teamProgress(team, challenges);
   const names = Object.fromEntries(Object.values(db.members).map((m) => [m.id, m.name]));
   return {
     id: team.id,
     name: team.name,
     code: team.code,
+    challenges,
     progress,
-    status: teamStatus(team, progress),
+    status: teamStatus(team, challenges, progress),
     members: teamMembers(team.id).map((m) => ({
       id: m.id,
       name: m.name,
       contributions: team.contributions.filter((k) => k.memberId === m.id).length,
     })),
     contributions: team.contributions
-      .filter((k) => challengeById.has(k.challengeId))
+      .filter((k) => ids.has(k.challengeId))
       .slice(-300)
       .reverse()
-      .map((k) => ({ ...k, memberName: names[k.memberId] || 'Ancien membre' })),
+      .map((k) => ({
+        id: k.id,
+        challengeId: k.challengeId,
+        memberId: k.memberId,
+        memberName: names[k.memberId] || 'Ancien membre',
+        amount: k.amount,
+        note: k.note,
+        photos: (k.photos || []).map((f) => `/uploads/${f}`),
+        at: k.at,
+      })),
   };
 }
 
@@ -145,6 +172,35 @@ function createMember(team, name) {
   const member = { id: newId(), token: newId(24), teamId: team.id, name, joinedAt: Date.now() };
   db.members[member.id] = member;
   return member;
+}
+
+// ---------------------------------------------------------------------------
+// Preuves (images)
+// ---------------------------------------------------------------------------
+
+const PHOTO_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+function savePhotos(list) {
+  if (!Array.isArray(list)) return [];
+  if (list.length > MAX_PHOTOS) throw new HttpError(400, `${MAX_PHOTOS} images maximum par contribution.`);
+  const decoded = list.map((dataUrl) => {
+    const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl));
+    if (!match) throw new HttpError(400, "Format d'image non pris en charge.");
+    const buffer = Buffer.from(match[2], 'base64');
+    if (buffer.length > MAX_PHOTO_BYTES) throw new HttpError(413, 'Image trop lourde.');
+    return { buffer, ext: PHOTO_TYPES[match[1]] };
+  });
+  return decoded.map(({ buffer, ext }) => {
+    const file = `${newId(16)}.${ext}`;
+    fs.writeFileSync(path.join(UPLOAD_DIR, file), buffer);
+    return file;
+  });
+}
+
+function removePhotos(contributions) {
+  for (const k of contributions) {
+    for (const file of k.photos || []) fs.rm(path.join(UPLOAD_DIR, path.basename(file)), { force: true }, () => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +231,7 @@ function readJson(req) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY) {
-        reject(new HttpError(413, 'Requête trop volumineuse.'));
+        reject(new HttpError(413, 'Envoi trop volumineux.'));
         req.destroy();
         return;
       }
@@ -203,9 +259,11 @@ function auth(req) {
   return { member, team };
 }
 
-const routes = {
-  'GET /api/challenges': () => ({ challenges }),
+function ensureOpen(team) {
+  if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
+}
 
+const routes = {
   'POST /api/teams': async (req) => {
     const body = await readJson(req);
     const teamName = clean(body.teamName, 40);
@@ -214,7 +272,14 @@ const routes = {
     if (!memberName) throw new HttpError(400, 'Indique ton prénom ou pseudo.');
     if (Object.values(db.teams).some((t) => same(t.name, teamName)))
       throw new HttpError(409, "Ce nom d'équipe est déjà pris.");
-    const team = { id: newId(), name: teamName, code: newJoinCode(), createdAt: Date.now(), contributions: [] };
+    const team = {
+      id: newId(),
+      name: teamName,
+      code: newJoinCode(),
+      createdAt: Date.now(),
+      contributions: [],
+      customChallenges: [],
+    };
     db.teams[team.id] = team;
     const member = createMember(team, memberName);
     save();
@@ -243,27 +308,54 @@ const routes = {
   'POST /api/leave': (req) => {
     const { member, team } = auth(req);
     delete db.members[member.id];
-    if (!teamMembers(team.id).length) delete db.teams[team.id];
+    if (!teamMembers(team.id).length) {
+      removePhotos(team.contributions);
+      delete db.teams[team.id];
+    }
     save();
     return { ok: true };
+  },
+
+  'POST /api/challenges': async (req) => {
+    const { member, team } = auth(req);
+    ensureOpen(team);
+    const body = await readJson(req);
+    const title = clean(body.title, 60);
+    const target = round(Number(body.target));
+    if (!title) throw new HttpError(400, 'Donne un nom au défi.');
+    if (!Number.isFinite(target) || target <= 0 || target > 1e6) throw new HttpError(400, "L'objectif doit être un nombre positif.");
+    if (team.customChallenges.length >= MAX_CUSTOM_CHALLENGES) throw new HttpError(400, 'Trop de défis ajoutés.');
+    if (teamChallenges(team).some((c) => same(c.title, title))) throw new HttpError(409, 'Un défi porte déjà ce nom.');
+    team.customChallenges.push({
+      ...normalizeChallenge(
+        { title, target, unit: clean(body.unit, 12), description: clean(body.description, 200), bonus: body.bonus, step: Number.isInteger(target) ? 1 : 0.1 },
+        `perso-${newId(6)}`,
+      ),
+      createdBy: member.id,
+      createdAt: Date.now(),
+    });
+    save();
+    return { team: teamView(team) };
   },
 };
 
 async function addContribution(req, challengeId) {
   const { member, team } = auth(req);
-  const challenge = challengeById.get(challengeId);
+  const challenge = teamChallenges(team).find((c) => c.id === challengeId);
   if (!challenge) throw new HttpError(404, 'Défi introuvable.');
-  if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
+  ensureOpen(team);
   const body = await readJson(req);
   const amount = round(Number(body.amount));
   if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'La quantité doit être positive.');
   if (amount > challenge.target * 10) throw new HttpError(400, 'Quantité trop grande.');
+  const photos = savePhotos(body.photos);
   team.contributions.push({
     id: newId(8),
     challengeId,
     memberId: member.id,
     amount,
     note: clean(body.note, 200),
+    photos,
     at: Date.now(),
   });
   save();
@@ -276,8 +368,20 @@ function removeContribution(req, contributionId) {
   if (index === -1) throw new HttpError(404, 'Contribution introuvable.');
   if (team.contributions[index].memberId !== member.id)
     throw new HttpError(403, 'Tu ne peux annuler que tes propres contributions.');
-  if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
-  team.contributions.splice(index, 1);
+  ensureOpen(team);
+  removePhotos(team.contributions.splice(index, 1));
+  save();
+  return { team: teamView(team) };
+}
+
+function removeChallenge(req, challengeId) {
+  const { team } = auth(req);
+  const index = team.customChallenges.findIndex((c) => c.id === challengeId);
+  if (index === -1) throw new HttpError(404, "Seuls les défis ajoutés par l'équipe peuvent être supprimés.");
+  ensureOpen(team);
+  team.customChallenges.splice(index, 1);
+  removePhotos(team.contributions.filter((k) => k.challengeId === challengeId));
+  team.contributions = team.contributions.filter((k) => k.challengeId !== challengeId);
   save();
   return { team: teamView(team) };
 }
@@ -288,17 +392,19 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
-function serveStatic(res, relPath) {
-  const file = path.join(PUBLIC_DIR, path.normalize(relPath));
-  if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 404, { error: 'Introuvable' });
+function serveFile(res, baseDir, relPath, cache) {
+  const file = path.join(baseDir, path.normalize(relPath));
+  if (!file.startsWith(baseDir + path.sep)) return send(res, 404, { error: 'Introuvable' });
   fs.readFile(file, (err, data) => {
     if (err) return send(res, 404, { error: 'Introuvable' });
-    send(res, 200, data, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    send(res, 200, data, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache });
   });
 }
 
@@ -308,18 +414,24 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname.startsWith('/api/')) {
       const key = `${req.method} ${pathname}`;
-      const addMatch = /^\/api\/challenges\/([^/]+)\/contributions$/.exec(pathname);
+      const contribMatch = /^\/api\/challenges\/([^/]+)\/contributions$/.exec(pathname);
+      const challengeMatch = /^\/api\/challenges\/([^/]+)$/.exec(pathname);
       const delMatch = /^\/api\/contributions\/([^/]+)$/.exec(pathname);
       let result;
       if (routes[key]) result = await routes[key](req);
-      else if (addMatch && req.method === 'POST') result = await addContribution(req, addMatch[1]);
+      else if (contribMatch && req.method === 'POST') result = await addContribution(req, contribMatch[1]);
+      else if (challengeMatch && req.method === 'DELETE') result = removeChallenge(req, challengeMatch[1]);
       else if (delMatch && req.method === 'DELETE') result = removeContribution(req, delMatch[1]);
       else throw new HttpError(404, 'Route inconnue.');
       return send(res, 200, result, { 'Cache-Control': 'no-store' });
     }
 
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Méthode non autorisée.');
-    return serveStatic(res, pathname === '/' ? 'index.html' : pathname);
+
+    if (pathname.startsWith('/uploads/'))
+      return serveFile(res, UPLOAD_DIR, path.basename(pathname), 'private, max-age=31536000, immutable');
+
+    return serveFile(res, PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname, 'no-cache');
   } catch (err) {
     if (!(err instanceof HttpError)) console.error(err);
     const status = err instanceof HttpError ? err.status : 500;
@@ -329,7 +441,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`WEI Défis : http://localhost:${PORT} (${challenges.length} défis)`);
+  console.log(`WEI Défis : http://localhost:${PORT} (${baseChallenges.length} défis communs)`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
