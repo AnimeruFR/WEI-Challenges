@@ -12,7 +12,9 @@ Pas de points : l'équipe a **3 jours** pour réussir tous les défis. Soit elle
 - **Annulation** : chacun peut annuler ses propres contributions en cas d'erreur.
 - **Activité** : fil des dernières contributions de l'équipe.
 - **Compte à rebours** : temps restant et statut de l'équipe (en cours, réussi, perdu). Une fois le temps écoulé, plus aucun ajout n'est possible.
-- Rafraîchissement automatique toutes les 10 s, mode sombre, adapté au mobile.
+- Pensé pour le **téléphone** : grands boutons tactiles, prise en compte de l'encoche, mode sombre automatique.
+- **Installable sur l'écran d'accueil** (Safari : Partager → « Sur l'écran d'accueil » ; Chrome : menu → « Ajouter à l'écran d'accueil ») : le site s'ouvre alors comme une appli.
+- Rafraîchissement automatique toutes les 10 s.
 
 Pour retrouver son compte sur un autre appareil, il suffit de rejoindre l'équipe avec le même code et le même pseudo.
 

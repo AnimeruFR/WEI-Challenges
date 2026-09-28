@@ -39,7 +39,7 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 
 body {
   margin: 0;
@@ -54,7 +54,7 @@ h1 { font-size: 1.5rem; line-height: 1.25; letter-spacing: -0.01em; }
 h2 { font-size: 1.15rem; line-height: 1.3; }
 
 button, input { font: inherit; color: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; touch-action: manipulation; }
 [hidden] { display: none !important; }
 
 .muted { color: var(--muted); }
@@ -76,11 +76,12 @@ button { cursor: pointer; }
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
 }
 .topbar-inner {
   max-width: 640px;
   margin: 0 auto;
-  padding: 10px 16px;
+  padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -147,8 +148,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 10px;
   border: 0;
   background: transparent;
@@ -169,7 +170,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   flex: 1;
   border: 0;
   background: transparent;
-  padding: 8px 6px;
+  padding: 10px 6px;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
@@ -184,7 +185,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .tabs {
   margin: 16px 0 12px;
   position: sticky;
-  top: 60px;
+  top: calc(60px + env(safe-area-inset-top));
   z-index: 5;
   border: 1px solid var(--border);
 }
@@ -261,7 +262,10 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   box-shadow: var(--shadow);
   transition: border-color 0.15s;
 }
-.challenge:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+@media (hover: hover) {
+  .challenge:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+}
+.challenge:active { transform: scale(0.99); }
 .challenge-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .challenge-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .challenge-title { font-weight: 600; overflow-wrap: anywhere; }
@@ -272,9 +276,9 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   flex: none;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -344,7 +348,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .link-btn {
   border: 0;
   background: none;
-  padding: 4px 6px;
+  padding: 10px 8px;
   font-size: 0.8125rem;
   color: var(--danger);
   font-weight: 600;
@@ -365,6 +369,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   width: 100%;
   max-width: 560px;
   max-height: 88vh;
+  max-height: 88dvh;
+  overscroll-behavior: contain;
   overflow-y: auto;
   background: var(--surface);
   border-radius: 18px 18px 0 0;
@@ -384,7 +390,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .quick button {
   flex: 1 1 0;
   min-width: 60px;
-  padding: 10px 8px;
+  padding: 12px 8px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface-2);
