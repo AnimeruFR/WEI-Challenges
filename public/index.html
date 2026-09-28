@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>WEI Info · Défis</title>
+  <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%233b5bdb'/><path d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="brand">WEI Info <span class="muted">· Défis</span></span>
+      <button id="menu-btn" class="icon-btn" hidden aria-label="Mon compte">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="app" class="container">
+    <!-- Accueil -->
+    <section id="view-welcome" hidden>
+      <div class="hero">
+        <h1>Les défis du WEI, en équipe.</h1>
+        <p class="muted">Rejoins ton équipe avec son code, ou crée-la. Chaque contribution fait avancer les compteurs de toute l'équipe.</p>
+      </div>
+
+      <div class="card">
+        <div class="segmented" role="tablist">
+          <button role="tab" data-auth-tab="join" aria-selected="true">Rejoindre</button>
+          <button role="tab" data-auth-tab="create" aria-selected="false">Créer une équipe</button>
+        </div>
+
+        <form id="form-join" class="stack">
+          <label>Code de l'équipe
+            <input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7M2QX" class="code-input">
+          </label>
+          <label>Ton prénom ou pseudo
+            <input name="memberName" required maxlength="30" autocomplete="nickname" placeholder="ex. Axel">
+          </label>
+          <p class="hint">Déjà membre ? Utilise le même pseudo pour retrouver ton compte sur un autre appareil.</p>
+          <button class="btn primary" type="submit">Rejoindre l'équipe</button>
+        </form>
+
+        <form id="form-create" class="stack" hidden>
+          <label>Nom de l'équipe
+            <input name="teamName" required maxlength="40" autocomplete="off" placeholder="ex. Les Gattouzeurs">
+          </label>
+          <label>Ton prénom ou pseudo
+            <input name="memberName" required maxlength="30" autocomplete="nickname" placeholder="ex. Axel">
+          </label>
+          <button class="btn primary" type="submit">Créer l'équipe</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Tableau de bord -->
+    <section id="view-team" hidden>
+      <div class="card summary">
+        <div class="summary-head">
+          <div>
+            <p class="eyebrow">Mon équipe</p>
+            <h1 id="team-name"></h1>
+          </div>
+          <div class="summary-score">
+            <strong id="team-done"></strong>
+            <span class="muted" id="team-done-label"></span>
+          </div>
+        </div>
+        <div class="bar lg"><span id="team-bar"></span></div>
+        <p class="muted small" id="team-percent"></p>
+      </div>
+
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="challenges" aria-selected="true">Défis</button>
+        <button role="tab" data-tab="activity" aria-selected="false">Activité</button>
+        <button role="tab" data-tab="leaderboard" aria-selected="false">Classement</button>
+        <button role="tab" data-tab="members" aria-selected="false">Équipe</button>
+      </nav>
+
+      <div id="tab-challenges">
+        <div class="toolbar">
+          <label class="switch"><input type="checkbox" id="hide-done"> Masquer les défis terminés</label>
+        </div>
+        <ul id="challenge-list" class="list"></ul>
+      </div>
+
+      <div id="tab-activity" hidden>
+        <ul id="activity-list" class="list"></ul>
+      </div>
+
+      <div id="tab-leaderboard" hidden>
+        <ol id="leaderboard-list" class="list"></ol>
+      </div>
+
+      <div id="tab-members" hidden>
+        <div class="card invite">
+          <div>
+            <p class="eyebrow">Code d'invitation</p>
+            <p class="code" id="invite-code"></p>
+            <p class="muted small">Partage ce code pour que tes coéquipiers rejoignent l'équipe.</p>
+          </div>
+          <button class="btn" id="copy-code" type="button">Copier</button>
+        </div>
+        <ul id="member-list" class="list"></ul>
+        <button class="btn ghost danger" id="leave-btn" type="button">Quitter l'équipe</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Feuille d'ajout de contribution -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-head">
+        <div>
+          <h2 id="sheet-title"></h2>
+          <p class="muted small" id="sheet-desc"></p>
+        </div>
+        <button class="icon-btn" data-close aria-label="Fermer">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="sheet-progress">
+        <div class="sheet-count"><strong id="sheet-current"></strong> <span class="muted" id="sheet-target"></span></div>
+        <div class="bar"><span id="sheet-bar"></span></div>
+      </div>
+
+      <form id="form-contrib" class="stack">
+        <div class="quick" id="sheet-quick"></div>
+        <div class="row">
+          <label class="grow">Quantité
+            <input name="amount" type="number" inputmode="decimal" min="0" required>
+          </label>
+          <label class="grow-2"><span>Note <span class="muted">(facultatif)</span></span>
+            <input name="note" maxlength="200" autocomplete="off" placeholder="ex. au bar, avec l'équipe 3">
+          </label>
+        </div>
+        <button class="btn primary" type="submit" id="sheet-submit">Ajouter</button>
+      </form>
+
+      <h3 class="section-title">Contributions</h3>
+      <ul id="sheet-history" class="list compact"></ul>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

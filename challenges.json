@@ -1,0 +1,19 @@
+[
+  { "id": "alcool", "title": "Alcool", "target": 50, "unit": "L", "step": 0.5 },
+  { "id": "rachats", "title": "Rachats quelconques", "target": 15 },
+  { "id": "gouffre", "title": "Gouffres gagnés", "target": 2 },
+  { "id": "bacchus", "title": "Parties de Bacchus terminées", "target": 2 },
+  { "id": "roulades", "title": "Roulades", "target": 100 },
+  { "id": "pompes", "title": "Pompes", "target": 300 },
+  { "id": "chorees", "title": "Chorées", "target": 20 },
+  { "id": "isaac", "title": "Runs d'Isaac", "target": 20 },
+  { "id": "gd-lite", "title": "Finir Geometry Dash Lite", "description": "Les niveaux de base.", "target": 1 },
+  { "id": "gd-subzero", "title": "Finir Geometry Dash SubZero", "target": 1 },
+  { "id": "pipes", "title": "Pipes", "target": 5 },
+  { "id": "bisous", "title": "Bisous", "target": 3000 },
+  { "id": "onepiecedle", "title": "OnePiecedle", "target": 3 },
+  { "id": "bateau-pirate", "title": "Bateau pirate +90", "target": 3 },
+  { "id": "fromages", "title": "Fromages", "target": 30 },
+  { "id": "gattouzer", "title": "Gattouzer des personnes", "target": 10 },
+  { "id": "minecraft", "title": "Minecraft moddé", "description": "Atteindre le goal.", "target": 1, "bonus": true }
+]
