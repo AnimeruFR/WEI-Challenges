@@ -444,12 +444,30 @@ const MIME = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
-function serveFile(res, baseDir, relPath, cache) {
+function serveFile(res, baseDir, relPath, cache, onMissing) {
   const file = path.join(baseDir, path.normalize(relPath));
-  if (!file.startsWith(baseDir + path.sep)) return send(res, 404, { error: 'Introuvable' });
+  const missing = () => (onMissing ? onMissing() : send(res, 404, { error: 'Fichier introuvable.' }));
+  if (!file.startsWith(baseDir + path.sep)) return missing();
   fs.readFile(file, (err, data) => {
-    if (err) return send(res, 404, { error: 'Introuvable' });
+    if (err) return missing();
     send(res, 200, data, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': cache });
+  });
+}
+
+// Page d'accueil ; si elle manque, on explique où le serveur l'a cherchée (utile au déploiement).
+function serveIndex(res) {
+  serveFile(res, PUBLIC_DIR, 'index.html', 'no-cache', () => {
+    const where = path.join(PUBLIC_DIR, 'index.html');
+    console.error(`Page d'accueil introuvable : ${where}`);
+    send(
+      res,
+      500,
+      `<!doctype html><meta charset="utf-8"><title>WEI Défis</title><body style="font-family:system-ui;padding:24px;max-width:640px">
+<h1>Site mal installé</h1>
+<p>Le serveur tourne, mais il ne trouve pas <code>${where.replace(/[<>&]/g, '')}</code>.</p>
+<p>Vérifie que le dossier <code>public</code> est bien à côté de <code>server.js</code>, et que la « Racine de l'application » dans Plesk pointe sur le dossier qui contient <code>server.js</code>.</p>`,
+      { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    );
   });
 }
 
@@ -478,7 +496,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/uploads/'))
       return serveFile(res, UPLOAD_DIR, path.basename(pathname), 'private, max-age=31536000, immutable');
 
-    return serveFile(res, PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname, 'no-cache');
+    if (pathname === '/') return serveIndex(res);
+    // Une adresse inconnue (ex. /index.php, /wei) renvoie vers l'application plutôt qu'une erreur.
+    return serveFile(res, PUBLIC_DIR, pathname, 'no-cache', () => serveIndex(res));
   } catch (err) {
     if (!(err instanceof HttpError)) console.error(err);
     const status = err instanceof HttpError ? err.status : 500;
@@ -489,6 +509,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`WEI Défis : http://localhost:${PORT} (${baseChallenges.length} défis communs)`);
+  console.log(`Fichiers du site : ${PUBLIC_DIR}${fs.existsSync(path.join(PUBLIC_DIR, 'index.html')) ? '' : ' (index.html INTROUVABLE)'}`);
+  console.log(`Données : ${DATA_DIR}`);
   if (startAt) console.log(`Début : ${frDate(startAt)}`);
   if (endAt) console.log(`Fin : ${frDate(endAt)}`);
 });
