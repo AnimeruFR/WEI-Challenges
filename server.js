@@ -11,6 +11,7 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const CHALLENGES_FILE = process.env.CHALLENGES_FILE || path.join(ROOT, 'challenges.json');
+const CONFIG_FILE = process.env.CONFIG_FILE || path.join(ROOT, 'config.json');
 const MAX_BODY = 64 * 1024;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -42,6 +43,14 @@ function loadChallenges() {
 const challenges = loadChallenges();
 const challengeById = new Map(challenges.map((c) => [c.id, c]));
 const mainChallenges = challenges.filter((c) => !c.bonus);
+
+// Date limite : commune à toutes les équipes si `deadline` est défini,
+// sinon `durationHours` après la création de chaque équipe.
+const config = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) : {};
+const globalDeadline = config.deadline ? Date.parse(config.deadline) : null;
+if (config.deadline && Number.isNaN(globalDeadline)) throw new Error(`Date limite invalide : ${config.deadline}`);
+const durationMs = (Number(config.durationHours) > 0 ? Number(config.durationHours) : 72) * 3600 * 1000;
+const deadlineOf = (team) => globalDeadline ?? team.createdAt + durationMs;
 
 // ---------------------------------------------------------------------------
 // Stockage (fichier JSON, écriture atomique)
@@ -101,14 +110,13 @@ function teamProgress(team) {
   return progress;
 }
 
-function teamStats(team, progress = teamProgress(team)) {
-  const ratio = (c) => Math.min(1, progress[c.id] / c.target);
-  const done = mainChallenges.filter((c) => ratio(c) >= 1).length;
-  const bonusDone = challenges.filter((c) => c.bonus && ratio(c) >= 1).length;
-  const percent = mainChallenges.length
-    ? Math.round((mainChallenges.reduce((s, c) => s + ratio(c), 0) / mainChallenges.length) * 100)
-    : 0;
-  return { done, bonusDone, percent };
+function teamStatus(team, progress) {
+  const done = mainChallenges.filter((c) => progress[c.id] >= c.target).length;
+  const deadline = deadlineOf(team);
+  let status = 'ongoing';
+  if (done === mainChallenges.length) status = 'won';
+  else if (Date.now() >= deadline) status = 'lost';
+  return { done, total: mainChallenges.length, deadline, status };
 }
 
 function teamView(team) {
@@ -119,7 +127,7 @@ function teamView(team) {
     name: team.name,
     code: team.code,
     progress,
-    stats: teamStats(team, progress),
+    status: teamStatus(team, progress),
     members: teamMembers(team.id).map((m) => ({
       id: m.id,
       name: m.name,
@@ -239,26 +247,13 @@ const routes = {
     save();
     return { ok: true };
   },
-
-  'GET /api/leaderboard': () => {
-    const teams = Object.values(db.teams).map((t) => ({
-      id: t.id,
-      name: t.name,
-      members: teamMembers(t.id).length,
-      ...teamStats(t),
-    }));
-    teams.sort(
-      (a, b) =>
-        b.done - a.done || b.percent - a.percent || b.bonusDone - a.bonusDone || a.name.localeCompare(b.name, 'fr'),
-    );
-    return { teams, totalChallenges: mainChallenges.length };
-  },
 };
 
 async function addContribution(req, challengeId) {
   const { member, team } = auth(req);
   const challenge = challengeById.get(challengeId);
   if (!challenge) throw new HttpError(404, 'Défi introuvable.');
+  if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
   const body = await readJson(req);
   const amount = round(Number(body.amount));
   if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'La quantité doit être positive.');
@@ -281,6 +276,7 @@ function removeContribution(req, contributionId) {
   if (index === -1) throw new HttpError(404, 'Contribution introuvable.');
   if (team.contributions[index].memberId !== member.id)
     throw new HttpError(403, 'Tu ne peux annuler que tes propres contributions.');
+  if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
   team.contributions.splice(index, 1);
   save();
   return { team: teamView(team) };

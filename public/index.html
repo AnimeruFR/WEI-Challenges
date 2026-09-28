@@ -24,7 +24,7 @@
     <section id="view-welcome" hidden>
       <div class="hero">
         <h1>Les défis du WEI, en équipe.</h1>
-        <p class="muted">Rejoins ton équipe avec son code, ou crée-la. Chaque contribution fait avancer les compteurs de toute l'équipe.</p>
+        <p class="muted">Rejoins ton équipe avec son code, ou crée-la. Vous avez 3 jours pour réussir tous les défis ensemble : chaque contribution fait avancer les compteurs de toute l'équipe.</p>
       </div>
 
       <div class="card">
@@ -58,7 +58,7 @@
 
     <!-- Tableau de bord -->
     <section id="view-team" hidden>
-      <div class="card summary">
+      <div class="card summary" id="summary">
         <div class="summary-head">
           <div>
             <p class="eyebrow">Mon équipe</p>
@@ -66,17 +66,19 @@
           </div>
           <div class="summary-score">
             <strong id="team-done"></strong>
-            <span class="muted" id="team-done-label"></span>
+            <span class="muted">réussis</span>
           </div>
         </div>
         <div class="bar lg"><span id="team-bar"></span></div>
-        <p class="muted small" id="team-percent"></p>
+        <div class="status" id="team-status">
+          <p class="status-title" id="status-title"></p>
+          <p class="status-sub" id="status-sub"></p>
+        </div>
       </div>
 
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="challenges" aria-selected="true">Défis</button>
         <button role="tab" data-tab="activity" aria-selected="false">Activité</button>
-        <button role="tab" data-tab="leaderboard" aria-selected="false">Classement</button>
         <button role="tab" data-tab="members" aria-selected="false">Équipe</button>
       </nav>
 
@@ -89,10 +91,6 @@
 
       <div id="tab-activity" hidden>
         <ul id="activity-list" class="list"></ul>
-      </div>
-
-      <div id="tab-leaderboard" hidden>
-        <ol id="leaderboard-list" class="list"></ol>
       </div>
 
       <div id="tab-members" hidden>
@@ -128,6 +126,8 @@
         <div class="sheet-count"><strong id="sheet-current"></strong> <span class="muted" id="sheet-target"></span></div>
         <div class="bar"><span id="sheet-bar"></span></div>
       </div>
+
+      <p class="closed-msg" id="sheet-closed" hidden>Le temps est écoulé : les défis sont clos.</p>
 
       <form id="form-contrib" class="stack">
         <div class="quick" id="sheet-quick"></div>

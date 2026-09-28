@@ -13,8 +13,7 @@ const state = {
   memberId: null,
   team: null,
   challenges: [],
-  leaderboard: null,
-  tab: storage.get('wei.tab') || 'challenges',
+  tab: ['challenges', 'activity', 'members'].includes(storage.get('wei.tab')) ? storage.get('wei.tab') : 'challenges',
   hideDone: storage.get('wei.hideDone') === '1',
   openChallenge: null,
 };
@@ -116,22 +115,59 @@ function render() {
   if (!loggedIn) return;
 
   const { team } = state;
-  const main = state.challenges.filter((c) => !c.bonus);
   $('#team-name').textContent = team.name;
-  $('#team-done').textContent = `${team.stats.done}/${main.length}`;
-  $('#team-done-label').textContent = ' défis';
-  $('#team-bar').style.width = `${team.stats.percent}%`;
-  $('#team-percent').textContent =
-    `${team.stats.percent} % de l'objectif global` + (team.stats.bonusDone ? ` · ${team.stats.bonusDone} bonus réussi${team.stats.bonusDone > 1 ? 's' : ''}` : '');
+  $('#team-done').textContent = `${team.status.done}/${team.status.total}`;
+  $('#team-bar').style.width = `${team.status.total ? (team.status.done / team.status.total) * 100 : 0}%`;
+  renderStatus();
 
   $$('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
-  for (const t of ['challenges', 'activity', 'leaderboard', 'members']) $(`#tab-${t}`).hidden = t !== state.tab;
+  for (const t of ['challenges', 'activity', 'members']) $(`#tab-${t}`).hidden = t !== state.tab;
 
   renderChallenges();
   renderActivity();
-  renderLeaderboard();
   renderMembers();
   if (state.openChallenge) renderSheet();
+}
+
+// Réussi dès que tous les défis (hors bonus) sont terminés, perdu si la date limite passe avant.
+function currentStatus() {
+  const { status, deadline } = state.team.status;
+  if (status === 'won') return 'won';
+  return Date.now() >= deadline ? 'lost' : 'ongoing';
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+function countdown(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${d ? `${d} j ` : ''}${pad(h)} h ${pad(m)} min ${pad(s % 60)} s`;
+}
+
+function renderStatus() {
+  if (!state.team) return;
+  const { done, total, deadline } = state.team.status;
+  const status = currentStatus();
+  const left = total - done;
+  const end = new Date(deadline).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  $('#summary').className = `card summary ${status}`;
+  $('#team-status').className = `status ${status}`;
+  $('#challenge-list').classList.toggle('closed', status === 'lost');
+  if (status === 'won') {
+    $('#status-title').textContent = 'Défis réussis !';
+    $('#status-sub').textContent = "L'équipe a relevé tous les défis.";
+  } else if (status === 'lost') {
+    $('#status-title').textContent = 'Défis perdus';
+    $('#status-sub').textContent = `Temps écoulé avec ${left} défi${left > 1 ? 's' : ''} non réussi${left > 1 ? 's' : ''}.`;
+  } else {
+    $('#status-title').textContent = `Il reste ${countdown(deadline - Date.now())}`;
+    $('#status-sub').textContent = `Encore ${left} défi${left > 1 ? 's' : ''} à réussir · fin ${end}`;
+  }
+  if (state.wasOpen !== (status === 'ongoing')) {
+    state.wasOpen = status === 'ongoing';
+    if (state.openChallenge) renderSheet();
+  }
 }
 
 function renderChallenges() {
@@ -160,7 +196,7 @@ function renderChallenges() {
 
 function contributionItem(k, { showChallenge }) {
   const c = state.challenges.find((x) => x.id === k.challengeId);
-  const mine = k.memberId === state.memberId;
+  const mine = k.memberId === state.memberId && currentStatus() !== 'lost';
   const what = showChallenge
     ? `<b>+${esc(withUnit(k.amount, c?.unit))}</b> · ${esc(c?.title || '')}`
     : `<b>+${esc(withUnit(k.amount, c?.unit))}</b>`;
@@ -180,26 +216,6 @@ function renderActivity() {
   $('#activity-list').innerHTML = items.length
     ? items.map((k) => contributionItem(k, { showChallenge: true })).join('')
     : '<li class="empty">Aucune contribution pour l\'instant. Choisis un défi dans l\'onglet « Défis » pour commencer.</li>';
-}
-
-function renderLeaderboard() {
-  const lb = state.leaderboard;
-  if (!lb) {
-    $('#leaderboard-list').innerHTML = '<li class="empty">Chargement…</li>';
-    return;
-  }
-  $('#leaderboard-list').innerHTML = lb.teams.length
-    ? lb.teams.map((t, i) => `
-        <li class="item${t.id === state.team.id ? ' is-me' : ''}">
-          <span class="rank">${i + 1}</span>
-          <div class="item-main">
-            <p><b>${esc(t.name)}</b></p>
-            <p class="muted small">${t.members} membre${t.members > 1 ? 's' : ''}${t.bonusDone ? ` · ${t.bonusDone} bonus` : ''}</p>
-            <div class="bar leader-bar"><span style="width:${t.percent}%"></span></div>
-          </div>
-          <div class="item-side"><b style="color:var(--text)">${t.done}/${lb.totalChallenges}</b><br>${t.percent} %</div>
-        </li>`).join('')
-    : '<li class="empty">Aucune équipe.</li>';
 }
 
 function renderMembers() {
@@ -263,6 +279,9 @@ function renderSheet() {
   $('#sheet-target').textContent = `/ ${withUnit(c.target, c.unit)}${p.done ? ' · terminé ✓' : ''}`;
   $('#sheet-bar').style.width = `${p.ratio * 100}%`;
   $('#sheet-bar').parentElement.classList.toggle('done', p.done);
+  const closed = currentStatus() === 'lost';
+  $('#form-contrib').hidden = closed;
+  $('#sheet-closed').hidden = !closed;
   const history = state.team.contributions.filter((k) => k.challengeId === c.id);
   $('#sheet-history').innerHTML = history.length
     ? history.map((k) => contributionItem(k, { showChallenge: false })).join('')
@@ -282,9 +301,7 @@ function closeSheet() {
 async function refresh() {
   if (!state.token) return;
   try {
-    const [me, lb] = await Promise.all([api('GET', '/api/me'), api('GET', '/api/leaderboard')]);
-    state.leaderboard = lb;
-    setSession(me);
+    setSession(await api('GET', '/api/me'));
   } catch (err) {
     if (state.token) console.warn(err);
   }
@@ -299,6 +316,7 @@ async function init() {
   if (state.token) await refresh();
   render();
   setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+  setInterval(renderStatus, 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 }
 
@@ -335,7 +353,6 @@ $$('[data-tab]').forEach((btn) => btn.addEventListener('click', () => {
   state.tab = btn.dataset.tab;
   storage.set('wei.tab', state.tab);
   render();
-  if (state.tab === 'leaderboard') refresh();
 }));
 
 $('#hide-done').addEventListener('change', (e) => {
@@ -366,6 +383,7 @@ $('#form-contrib').addEventListener('submit', async (e) => {
   const c = state.challenges.find((x) => x.id === id);
   const amount = Number(form.amount.value);
   const wasDone = progressOf(c).done;
+  const wasWon = currentStatus() === 'won';
   const button = $('#sheet-submit');
   button.disabled = true;
   try {
@@ -373,7 +391,11 @@ $('#form-contrib').addEventListener('submit', async (e) => {
     setSession(data);
     form.note.value = '';
     const nowDone = progressOf(c).done;
-    toast(!wasDone && nowDone ? `Défi « ${c.title} » terminé !` : `+${withUnit(amount, c.unit)} ajouté`);
+    toast(
+      currentStatus() === 'won' && !wasWon ? 'Tous les défis sont réussis !'
+        : !wasDone && nowDone ? `Défi « ${c.title} » réussi !`
+        : `+${withUnit(amount, c.unit)} ajouté`,
+    );
   } catch (err) {
     toast(err.message, true);
   } finally {

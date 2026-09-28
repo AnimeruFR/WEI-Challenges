@@ -11,6 +11,7 @@
   --success: #2b8a3e;
   --success-soft: #e6f4ea;
   --danger: #c92a2a;
+  --danger-soft: #fdecec;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.02);
   color-scheme: light;
@@ -30,6 +31,7 @@
     --success: #69db7c;
     --success-soft: #1d3324;
     --danger: #ff8787;
+    --danger-soft: #3a2222;
     --shadow: none;
     color-scheme: dark;
   }
@@ -194,6 +196,32 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .summary-score { text-align: right; white-space: nowrap; }
 .summary-score strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
 
+/* Statut (en cours / réussi / perdu) */
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.status-title { font-weight: 700; font-variant-numeric: tabular-nums; }
+.status-sub { font-size: 0.875rem; color: var(--muted); }
+.status.won { background: var(--success-soft); }
+.status.won .status-title { color: var(--success); }
+.status.lost { background: var(--danger-soft); }
+.status.lost .status-title { color: var(--danger); }
+.summary.won .bar > span { background: var(--success); }
+.summary.lost .bar > span { background: var(--danger); }
+
+.closed-msg {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
 /* Barres de progression */
 .bar {
   height: 6px;
@@ -251,6 +279,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   color: var(--accent);
 }
 .challenge.is-done .add { background: var(--success-soft); color: var(--success); }
+.closed .challenge:not(.is-done) .add { visibility: hidden; }
 
 .tag {
   display: inline-block;
@@ -292,16 +321,6 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
   font-size: 0.875rem;
 }
 
-.rank {
-  flex: none;
-  width: 28px;
-  text-align: center;
-  font-weight: 700;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.item.is-me { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface)); }
-.leader-bar { margin-top: 6px; }
 
 .list.compact .item {
   border: 0;
