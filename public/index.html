@@ -30,7 +30,7 @@
     <section id="view-welcome" hidden>
       <div class="hero">
         <h1>Les défis du WEI, en équipe.</h1>
-        <p class="muted">Rejoins ton équipe avec son code, ou crée-la. Vous avez 3 jours pour réussir tous les défis ensemble : chaque contribution fait avancer les compteurs de toute l'équipe.</p>
+        <p class="muted">Rejoins ton équipe avec son code, ou crée-la. Du vendredi 19 h au dimanche 17 h, réussissez tous les défis ensemble : chaque contribution fait avancer les compteurs de toute l'équipe.</p>
       </div>
 
       <div class="card">
@@ -90,7 +90,8 @@
 
       <div id="tab-challenges">
         <div class="toolbar">
-          <label class="switch"><input type="checkbox" id="hide-done"> Masquer les défis terminés</label>
+          <label class="switch"><input type="checkbox" id="only-mine"> Mes défis</label>
+          <label class="switch"><input type="checkbox" id="hide-done"> Masquer les terminés</label>
         </div>
         <ul id="challenge-list" class="list"></ul>
         <button class="btn dashed" id="new-challenge-btn" type="button">+ Ajouter un défi</button>
@@ -134,7 +135,15 @@
         <div class="bar"><span id="sheet-bar"></span></div>
       </div>
 
-      <p class="closed-msg" id="sheet-closed" hidden>Le temps est écoulé : les défis sont clos.</p>
+      <div class="assign">
+        <div class="assign-info">
+          <p class="assign-title">Qui s'en charge ?</p>
+          <p class="muted small" id="sheet-assignees"></p>
+        </div>
+        <button class="btn small-btn" type="button" id="assign-btn"></button>
+      </div>
+
+      <p class="closed-msg" id="sheet-closed" hidden></p>
 
       <form id="form-contrib" class="stack">
         <div class="quick" id="sheet-quick"></div>

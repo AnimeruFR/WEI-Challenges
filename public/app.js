@@ -15,6 +15,7 @@ const state = {
   proofs: [],
   tab: ['challenges', 'activity', 'members'].includes(storage.get('wei.tab')) ? storage.get('wei.tab') : 'challenges',
   hideDone: storage.get('wei.hideDone') === '1',
+  onlyMine: storage.get('wei.onlyMine') === '1',
   openChallenge: null,
 };
 
@@ -131,12 +132,18 @@ function render() {
   if (state.openChallenge) renderSheet();
 }
 
-// Réussi dès que tous les défis (hors bonus) sont terminés, perdu si la date limite passe avant.
+// À venir avant le début, réussi dès que tous les défis (hors bonus) sont terminés,
+// perdu si la fin arrive avant.
 function currentStatus() {
-  const { status, deadline } = state.team.status;
+  const { status, start, deadline } = state.team.status;
+  if (start && Date.now() < start) return 'upcoming';
   if (status === 'won') return 'won';
   return Date.now() >= deadline ? 'lost' : 'ongoing';
 }
+
+const canContribute = () => ['ongoing', 'won'].includes(currentStatus());
+
+const longDate = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 const pad = (n) => String(n).padStart(2, '0');
 function countdown(ms) {
@@ -149,15 +156,18 @@ function countdown(ms) {
 
 function renderStatus() {
   if (!state.team) return;
-  const { done, total, deadline } = state.team.status;
+  const { done, total, start, deadline } = state.team.status;
   const status = currentStatus();
   const left = total - done;
-  const end = new Date(deadline).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const end = longDate(deadline);
   $('#summary').className = `card summary ${status}`;
   $('#team-status').className = `status ${status}`;
-  $('#challenge-list').classList.toggle('closed', status === 'lost');
+  $('#challenge-list').classList.toggle('closed', !canContribute());
   $('#new-challenge-btn').hidden = status === 'lost';
-  if (status === 'won') {
+  if (status === 'upcoming') {
+    $('#status-title').textContent = `Début dans ${countdown(start - Date.now())}`;
+    $('#status-sub').textContent = `Du ${longDate(start)} au ${end}. En attendant, ajoutez vos défis et répartissez-vous les tâches.`;
+  } else if (status === 'won') {
     $('#status-title').textContent = 'Défis réussis !';
     $('#status-sub').textContent = "L'équipe a relevé tous les défis.";
   } else if (status === 'lost') {
@@ -167,15 +177,23 @@ function renderStatus() {
     $('#status-title').textContent = `Il reste ${countdown(deadline - Date.now())}`;
     $('#status-sub').textContent = `Encore ${left} défi${left > 1 ? 's' : ''} à réussir · fin ${end}`;
   }
-  if (state.wasOpen !== (status === 'ongoing')) {
-    state.wasOpen = status === 'ongoing';
-    if (state.openChallenge) renderSheet();
+  if (state.lastStatus !== status) {
+    const changed = state.lastStatus !== undefined;
+    state.lastStatus = status;
+    if (changed) {
+      renderChallenges();
+      renderActivity();
+      if (state.openChallenge) renderSheet();
+    }
   }
 }
 
 function renderChallenges() {
   $('#hide-done').checked = state.hideDone;
-  const visible = challenges().filter((c) => !(state.hideDone && progressOf(c).done));
+  $('#only-mine').checked = state.onlyMine;
+  const visible = challenges().filter(
+    (c) => !(state.hideDone && progressOf(c).done) && !(state.onlyMine && !c.assignees.includes(state.memberId)),
+  );
   $('#challenge-list').innerHTML = visible.length
     ? visible.map((c) => {
         const p = progressOf(c);
@@ -188,18 +206,24 @@ function renderChallenges() {
                   <span class="challenge-count"><b>${fmt(p.value)}</b> / ${esc(withUnit(c.target, c.unit))}</span>
                 </div>
                 ${c.description ? `<p class="challenge-desc">${esc(c.description)}</p>` : ''}
+                ${c.assignees.length ? `<p class="challenge-who${c.assignees.includes(state.memberId) ? ' is-mine' : ''}">${esc(assigneeNames(c))}</p>` : ''}
                 <div class="bar${p.done ? ' done' : ''}"><span style="width:${p.ratio * 100}%"></span></div>
               </div>
               <span class="add" aria-hidden="true">${p.done ? checkIcon : plusIcon}</span>
             </button>
           </li>`;
       }).join('')
-    : '<li class="empty">Tous les défis sont terminés. Bravo !</li>';
+    : `<li class="empty">${state.onlyMine ? "Tu ne t'es chargé d'aucun défi. Ouvre un défi et appuie sur « Je m'en charge »." : 'Tous les défis sont terminés. Bravo !'}</li>`;
+}
+
+function assigneeNames(c) {
+  const names = Object.fromEntries(state.team.members.map((m) => [m.id, m.name]));
+  return c.assignees.map((id) => (id === state.memberId ? 'Toi' : names[id])).filter(Boolean).join(', ');
 }
 
 function contributionItem(k, { showChallenge }) {
   const c = findChallenge(k.challengeId);
-  const mine = k.memberId === state.memberId && currentStatus() !== 'lost';
+  const mine = k.memberId === state.memberId && canContribute();
   const what = showChallenge
     ? `<b>+${esc(withUnit(k.amount, c?.unit))}</b> · ${esc(c?.title || '')}`
     : `<b>+${esc(withUnit(k.amount, c?.unit))}</b>`;
@@ -231,7 +255,7 @@ function renderMembers() {
       <div class="item-main">
         <p><b>${esc(m.name)}</b>${m.id === state.memberId ? ' <span class="muted">(toi)</span>' : ''}</p>
       </div>
-      <span class="item-side">${m.contributions} contribution${m.contributions > 1 ? 's' : ''}</span>
+      <span class="item-side">${m.assigned} défi${m.assigned > 1 ? 's' : ''} en charge<br>${m.contributions} contribution${m.contributions > 1 ? 's' : ''}</span>
     </li>`).join('');
 }
 
@@ -285,10 +309,19 @@ function renderSheet() {
   $('#sheet-target').textContent = `/ ${withUnit(c.target, c.unit)}${p.done ? ' · terminé ✓' : ''}`;
   $('#sheet-bar').style.width = `${p.ratio * 100}%`;
   $('#sheet-bar').parentElement.classList.toggle('done', p.done);
-  const closed = currentStatus() === 'lost';
+  const status = currentStatus();
+  const closed = !canContribute();
   $('#form-contrib').hidden = closed;
   $('#sheet-closed').hidden = !closed;
-  $('#delete-challenge-btn').hidden = !c.custom || closed;
+  $('#sheet-closed').textContent = status === 'upcoming'
+    ? `Les ajouts d'avancement ouvriront ${longDate(state.team.status.start)}. D'ici là, répartissez-vous les défis.`
+    : 'Le temps est écoulé : les défis sont clos.';
+  $('#delete-challenge-btn').hidden = !c.custom || status === 'lost';
+  const mine = c.assignees.includes(state.memberId);
+  $('#sheet-assignees').textContent = c.assignees.length ? assigneeNames(c) : 'Personne pour le moment';
+  $('#assign-btn').hidden = status === 'lost';
+  $('#assign-btn').textContent = mine ? 'Me retirer' : "Je m'en charge";
+  $('#assign-btn').classList.toggle('is-on', mine);
   const history = state.team.contributions.filter((k) => k.challengeId === c.id);
   $('#sheet-history').innerHTML = history.length
     ? history.map((k) => contributionItem(k, { showChallenge: false })).join('')
@@ -399,6 +432,28 @@ $$('[data-tab]').forEach((btn) => btn.addEventListener('click', () => {
   storage.set('wei.tab', state.tab);
   render();
 }));
+
+$('#only-mine').addEventListener('change', (e) => {
+  state.onlyMine = e.target.checked;
+  storage.set('wei.onlyMine', state.onlyMine ? '1' : '0');
+  renderChallenges();
+});
+
+$('#assign-btn').addEventListener('click', async (e) => {
+  const c = findChallenge(state.openChallenge);
+  if (!c) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const assigned = !c.assignees.includes(state.memberId);
+    setSession(await api('POST', `/api/challenges/${encodeURIComponent(c.id)}/assign`, { assigned }));
+    toast(assigned ? `Tu te charges de « ${c.title} »` : 'Tu ne te charges plus de ce défi');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('#hide-done').addEventListener('change', (e) => {
   state.hideDone = e.target.checked;

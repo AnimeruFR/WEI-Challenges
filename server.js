@@ -49,13 +49,23 @@ function loadChallenges() {
 
 const baseChallenges = loadChallenges();
 
-// Date limite : commune à toutes les équipes si `deadline` est défini,
-// sinon `durationHours` après la création de chaque équipe.
+// Période du challenge : `start` et `end` communs à toutes les équipes.
+// Sans `end`, chaque équipe a `durationHours` heures après sa création.
+// Avant `start`, on peut préparer (équipes, défis, répartition) mais pas avancer.
 const config = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) : {};
-const globalDeadline = config.deadline ? Date.parse(config.deadline) : null;
-if (config.deadline && Number.isNaN(globalDeadline)) throw new Error(`Date limite invalide : ${config.deadline}`);
+function parseDate(key) {
+  const value = config[key];
+  if (!value) return null;
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) throw new Error(`Date invalide pour « ${key} » : ${value}`);
+  return time;
+}
+const startAt = parseDate('start');
+const endAt = parseDate('end') ?? parseDate('deadline');
 const durationMs = (Number(config.durationHours) > 0 ? Number(config.durationHours) : 72) * 3600 * 1000;
-const deadlineOf = (team) => globalDeadline ?? team.createdAt + durationMs;
+const deadlineOf = (team) => endAt ?? team.createdAt + durationMs;
+const frDate = (time) =>
+  new Date(time).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 // ---------------------------------------------------------------------------
 // Stockage (fichier JSON, écriture atomique)
@@ -63,7 +73,10 @@ const deadlineOf = (team) => globalDeadline ?? team.createdAt + durationMs;
 
 let db = { teams: {}, members: {} };
 if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-for (const team of Object.values(db.teams)) team.customChallenges ??= [];
+for (const team of Object.values(db.teams)) {
+  team.customChallenges ??= [];
+  team.assignments ??= {};
+}
 
 let saveTimer = null;
 function writeDb() {
@@ -115,6 +128,10 @@ function teamChallenges(team) {
   return [...baseChallenges, ...team.customChallenges.map((c) => ({ ...c, custom: true }))];
 }
 
+function assigneesOf(team, challengeId) {
+  return (team.assignments[challengeId] || []).filter((id) => db.members[id]?.teamId === team.id);
+}
+
 function teamProgress(team, challenges) {
   const progress = {};
   for (const c of challenges) progress[c.id] = 0;
@@ -128,14 +145,16 @@ function teamStatus(team, challenges, progress) {
   const required = challenges.filter((c) => !c.bonus);
   const done = required.filter((c) => progress[c.id] >= c.target).length;
   const deadline = deadlineOf(team);
+  const now = Date.now();
   let status = 'ongoing';
-  if (done === required.length) status = 'won';
-  else if (Date.now() >= deadline) status = 'lost';
-  return { done, total: required.length, deadline, status };
+  if (startAt && now < startAt) status = 'upcoming';
+  else if (done === required.length) status = 'won';
+  else if (now >= deadline) status = 'lost';
+  return { done, total: required.length, start: startAt, deadline, status };
 }
 
 function teamView(team) {
-  const challenges = teamChallenges(team);
+  const challenges = teamChallenges(team).map((c) => ({ ...c, assignees: assigneesOf(team, c.id) }));
   const ids = new Set(challenges.map((c) => c.id));
   const progress = teamProgress(team, challenges);
   const names = Object.fromEntries(Object.values(db.members).map((m) => [m.id, m.name]));
@@ -150,6 +169,7 @@ function teamView(team) {
       id: m.id,
       name: m.name,
       contributions: team.contributions.filter((k) => k.memberId === m.id).length,
+      assigned: challenges.filter((c) => c.assignees.includes(m.id)).length,
     })),
     contributions: team.contributions
       .filter((k) => ids.has(k.challengeId))
@@ -263,6 +283,10 @@ function ensureOpen(team) {
   if (Date.now() >= deadlineOf(team)) throw new HttpError(403, 'Le temps est écoulé, les défis sont clos.');
 }
 
+function ensureStarted() {
+  if (startAt && Date.now() < startAt) throw new HttpError(403, `Les défis commencent ${frDate(startAt)}.`);
+}
+
 const routes = {
   'POST /api/teams': async (req) => {
     const body = await readJson(req);
@@ -279,6 +303,7 @@ const routes = {
       createdAt: Date.now(),
       contributions: [],
       customChallenges: [],
+      assignments: {},
     };
     db.teams[team.id] = team;
     const member = createMember(team, memberName);
@@ -308,6 +333,10 @@ const routes = {
   'POST /api/leave': (req) => {
     const { member, team } = auth(req);
     delete db.members[member.id];
+    for (const ids of Object.values(team.assignments)) {
+      const i = ids.indexOf(member.id);
+      if (i !== -1) ids.splice(i, 1);
+    }
     if (!teamMembers(team.id).length) {
       removePhotos(team.contributions);
       delete db.teams[team.id];
@@ -343,6 +372,7 @@ async function addContribution(req, challengeId) {
   const { member, team } = auth(req);
   const challenge = teamChallenges(team).find((c) => c.id === challengeId);
   if (!challenge) throw new HttpError(404, 'Défi introuvable.');
+  ensureStarted();
   ensureOpen(team);
   const body = await readJson(req);
   const amount = round(Number(body.amount));
@@ -382,6 +412,21 @@ function removeChallenge(req, challengeId) {
   team.customChallenges.splice(index, 1);
   removePhotos(team.contributions.filter((k) => k.challengeId === challengeId));
   team.contributions = team.contributions.filter((k) => k.challengeId !== challengeId);
+  delete team.assignments[challengeId];
+  save();
+  return { team: teamView(team) };
+}
+
+// « Je m'en charge » : un membre se positionne (ou se retire) sur un défi.
+async function assignChallenge(req, challengeId) {
+  const { member, team } = auth(req);
+  if (!teamChallenges(team).some((c) => c.id === challengeId)) throw new HttpError(404, 'Défi introuvable.');
+  ensureOpen(team);
+  const body = await readJson(req);
+  const ids = assigneesOf(team, challengeId).filter((id) => id !== member.id);
+  if (body.assigned) ids.push(member.id);
+  if (ids.length) team.assignments[challengeId] = ids;
+  else delete team.assignments[challengeId];
   save();
   return { team: teamView(team) };
 }
@@ -415,11 +460,13 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/api/')) {
       const key = `${req.method} ${pathname}`;
       const contribMatch = /^\/api\/challenges\/([^/]+)\/contributions$/.exec(pathname);
+      const assignMatch = /^\/api\/challenges\/([^/]+)\/assign$/.exec(pathname);
       const challengeMatch = /^\/api\/challenges\/([^/]+)$/.exec(pathname);
       const delMatch = /^\/api\/contributions\/([^/]+)$/.exec(pathname);
       let result;
       if (routes[key]) result = await routes[key](req);
       else if (contribMatch && req.method === 'POST') result = await addContribution(req, contribMatch[1]);
+      else if (assignMatch && req.method === 'POST') result = await assignChallenge(req, assignMatch[1]);
       else if (challengeMatch && req.method === 'DELETE') result = removeChallenge(req, challengeMatch[1]);
       else if (delMatch && req.method === 'DELETE') result = removeContribution(req, delMatch[1]);
       else throw new HttpError(404, 'Route inconnue.');
@@ -442,6 +489,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`WEI Défis : http://localhost:${PORT} (${baseChallenges.length} défis communs)`);
+  if (startAt) console.log(`Début : ${frDate(startAt)}`);
+  if (endAt) console.log(`Fin : ${frDate(endAt)}`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
